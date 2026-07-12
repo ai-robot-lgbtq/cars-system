@@ -1,0 +1,16 @@
+.idea
+.vscode
+.git
+.github
+.gitignore
+.dockerignore
+.env*
+!.env.example
+.next
+docs
+data/
+*.md
+**/dist/
+**/node_modules/
+**/.next
+**/coverage

@@ -1,6 +1,8 @@
 # --- Go ---
 backend/bin/
 backend/tmp/
+backend/api
+backend/worker
 *.exe
 *.test
 *.out
