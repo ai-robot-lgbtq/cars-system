@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: cars-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-cars}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-cars_pass}
+      POSTGRES_DB: ${DB_NAME:-cars_db}
+    ports:
+      - "15432:5432"        # ⬅️ 改动：宿主 15432，避开本机 PG18 的 5432
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./backend/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-cars}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: cars-redis
+    ports:
+      - "16379:6379"        # ⬅️ 改动：宿主 16379，避开本机 Redis 的 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  nginx:
+    image: nginx:alpine
+    container_name: cars-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - postgres
+      - redis
+    profiles: ["full"]   # 默认不启，Task 12 启用
+
+volumes:
+  pg_data:
