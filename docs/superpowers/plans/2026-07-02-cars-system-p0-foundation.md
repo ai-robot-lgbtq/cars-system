@@ -10,7 +10,7 @@
 - Backend: Go 1.22 + Gin + GORM + Viper + zap + golang-migrate
 - Frontend: Next.js 15 (App Router) + TypeScript 5 + Ant Design 5 + Zustand + TanStack Query
 - Monorepo: pnpm workspaces
-- Infra: Docker + Docker Compose + Nginx + PostgreSQL 16 (with zhparser) + Redis 7
+- Infra: Docker + Docker Compose + Nginx + PostgreSQL 16 + Redis 7 (zhparser 中文分词延迟到 P1)
 - CI: GitHub Actions (golangci-lint, ESLint, Vitest, build)
 
 ---
@@ -509,7 +509,7 @@ CMD ["node", "index.js"]
 ```yaml
 services:
   postgres:
-    image: ghcr.io/amutu/zhparser:16
+    image: postgres:16    # P0 用官方镜像；zhparser 中文分词延迟到 P1（ghcr.io 镜像国内拉取受阻）
     container_name: cars-postgres
     environment:
       POSTGRES_USER: ${DB_USER:-cars}
@@ -2567,7 +2567,7 @@ http {
 ```yaml
 services:
   postgres:
-    image: ghcr.io/amutu/zhparser:16
+    image: postgres:16    # P0 用官方镜像；zhparser 中文分词延迟到 P1（ghcr.io 镜像国内拉取受阻）
     container_name: cars-postgres
     environment:
       POSTGRES_USER: ${DB_USER:-cars}
@@ -2766,7 +2766,7 @@ jobs:
         working-directory: backend
     services:
       postgres:
-        image: ghcr.io/amutu/zhparser:16
+        image: postgres:16    # P0 用官方镜像；zhparser 中文分词延迟到 P1（ghcr.io 镜像国内拉取受阻）
         env:
           POSTGRES_USER: cars
           POSTGRES_PASSWORD: cars_pass
@@ -2870,17 +2870,10 @@ git commit -m "ci: add github actions for backend and frontend"
 -- P2 will add: orders, payments, reviews, aftersales.
 -- P3 will add: conversations, messages, notifications.
 
--- Verify zhparser extension is available (bundled with image).
-CREATE EXTENSION IF NOT EXISTS zhparser;
-
--- Create text search config (idempotent).
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = 'chinese_zh') THEN
-        EXECUTE 'CREATE TEXT SEARCH CONFIGURATION chinese_zh (PARSER = zhparser)';
-        EXECUTE 'ALTER TEXT SEARCH CONFIGURATION chinese_zh ADD MAPPING FOR n,v,a,i,e,l,t WITH simple';
-    END IF;
-END $$;
+-- P0 uses the official postgres:16 image (no zhparser).
+-- zhparser Chinese full-text search is deferred to P1, where a custom
+-- image (postgres:16 + zhparser) will be built and these lines re-enabled.
+CREATE EXTENSION IF NOT EXISTS pg_trgm;  -- trigram index, useful for LIKE/fuzzy search
 ```
 
 - [ ] **Step 14.2: 创建 down 迁移**
@@ -2888,8 +2881,7 @@ END $$;
 写入 `/home/scutech/桌面/study/cars-system/backend/migrations/000001_init_schema.down.sql`：
 
 ```sql
-DROP TEXT SEARCH CONFIGURATION IF EXISTS chinese_zh;
--- Extension is not dropped to avoid affecting other databases.
+-- pg_trgm extension is not dropped to avoid affecting other databases.
 ```
 
 - [ ] **Step 14.3: 删除占位 .gitkeep**
@@ -2907,17 +2899,17 @@ docker compose down postgres
 docker volume rm cars-system_pg_data 2>/dev/null || true
 docker compose up -d postgres
 sleep 5
-docker exec -it cars-postgres psql -U cars -d cars_db -c "SELECT cfgname FROM pg_ts_config WHERE cfgname='chinese_zh';"
+docker exec -it cars-postgres psql -U cars -d cars_db -c "SELECT extname FROM pg_extension WHERE extname='pg_trgm';"
 ```
 
-预期：返回一行 `chinese_zh`，表示分词配置已创建。
+预期：返回一行 `pg_trgm`，表示扩展已创建。
 
 - [ ] **Step 14.5: commit**
 
 ```bash
 cd /home/scutech/桌面/study/cars-system
 git add backend/migrations
-git commit -m "feat(db): init schema migration with zhparser configuration"
+git commit -m "feat(db): init schema migration with pg_trgm extension"
 ```
 
 ---
@@ -3105,5 +3097,5 @@ P0 通过后，下一步：
 | `docker compose up` 后 backend 一直 restart | `docker compose logs backend`，多半是连不上 Postgres —— 等待 postgres healthy |
 | `pnpm install` 报 lockfile 不一致 | `pnpm install --no-frozen-lockfile` 更新后重 commit lockfile |
 | `curl http://localhost/api/v1/health` 返回 502 | nginx 还没准备好，backend 也可能没起来；`docker compose ps` 看状态 |
-| zhparser 镜像拉取失败 | 改用 `postgres:16` + 单独安装 zhparser 扩展（需修改镜像） |
+| zhparser 镜像拉取失败 | P0 已改用官方 `postgres:16`，zhparser 延迟到 P1（届时自建 postgres:16 + zhparser 镜像） |
 | 端口冲突 | 修改 `.env` 中 `APP_PORT` 和 docker-compose 中 `ports` 映射 |
